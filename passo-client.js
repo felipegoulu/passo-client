@@ -10,9 +10,10 @@ const path = require('path');
 
 // Config
 const CONFIG_PATH = path.join(process.env.HOME, '.passo/config.json');
-const RELAY_URL = process.env.PASSO_RELAY || 'wss://passo-server-production.up.railway.app';
+const RELAY_URL = process.env.PASSO_RELAY || 'wss://api.getpasso.app';
 const LOCAL_VNC_PORT = process.env.VNC_PORT || 6080;
 const TOKEN = process.env.PASSO_TOKEN;
+const QUIET = process.argv.includes('-q') || process.argv.includes('--quiet') || process.env.PASSO_QUIET === '1';
 
 // Load config
 let config = {};
@@ -35,8 +36,8 @@ console.log(`   Relay: ${RELAY_URL}`);
 console.log(`   Local VNC: localhost:${LOCAL_VNC_PORT}`);
 console.log('');
 
-// Active viewer connections
-const viewers = new Map(); // viewerId -> local WebSocket
+// Active viewer connections: viewerId -> { localWs, ready, buffer }
+const viewers = new Map();
 
 // Connect to relay
 function connectToRelay() {
@@ -83,12 +84,19 @@ function connectToRelay() {
           console.log('Unknown message:', msg.type);
       }
     } catch (err) {
-      console.error('Parse error:', err);
+      // Binary data or parse error, ignore
     }
   });
   
   ws.on('close', (code, reason) => {
     console.log(`❌ Disconnected (${code}): ${reason || 'unknown'}`);
+    // Close all viewer connections
+    viewers.forEach((viewer, viewerId) => {
+      if (viewer.localWs) {
+        try { viewer.localWs.close(); } catch (e) {}
+      }
+    });
+    viewers.clear();
     console.log('🔄 Reconnecting in 5s...');
     setTimeout(connectToRelay, 5000);
   });
@@ -102,51 +110,94 @@ function connectToRelay() {
 
 // Handle new viewer
 function handleViewerConnect(relayWs, viewerId) {
-  console.log(`👁️  Viewer connected: ${viewerId}`);
+  if (!QUIET) console.log(`👁️  Viewer connected: ${viewerId}`);
+  
+  // Create viewer state with buffer for early messages
+  const viewer = {
+    localWs: null,
+    ready: false,
+    buffer: [],
+  };
+  viewers.set(viewerId, viewer);
   
   // Connect to local websockify
-  const localWs = new WebSocket(`ws://localhost:${LOCAL_VNC_PORT}`);
+  const localWs = new WebSocket(`ws://localhost:${LOCAL_VNC_PORT}`, {
+    // Handle binary properly
+    perMessageDeflate: false,
+  });
+  
+  localWs.binaryType = 'arraybuffer';
   
   localWs.on('open', () => {
-    console.log(`   Local VNC connected for ${viewerId}`);
-    viewers.set(viewerId, localWs);
+    if (!QUIET) console.log(`   Local VNC connected for ${viewerId}`);
+    viewer.localWs = localWs;
+    viewer.ready = true;
+    
+    // Flush buffered messages
+    if (viewer.buffer.length > 0) {
+      if (!QUIET) console.log(`   Flushing ${viewer.buffer.length} buffered messages`);
+      viewer.buffer.forEach((data) => {
+        try {
+          localWs.send(data);
+        } catch (e) {}
+      });
+      viewer.buffer = [];
+    }
   });
   
   localWs.on('message', (data) => {
     // Forward to relay
     if (relayWs.readyState === WebSocket.OPEN) {
-      relayWs.send(JSON.stringify({
-        viewerId,
-        data: Buffer.from(data).toString('base64'),
-      }));
+      try {
+        relayWs.send(JSON.stringify({
+          viewerId,
+          data: Buffer.from(data).toString('base64'),
+        }));
+      } catch (e) {
+        console.error(`   Error sending to relay:`, e.message);
+      }
     }
   });
   
-  localWs.on('close', () => {
-    console.log(`   Local VNC closed for ${viewerId}`);
+  localWs.on('close', (code, reason) => {
+    if (!QUIET) console.log(`   Local VNC closed for ${viewerId} (${code})`);
     viewers.delete(viewerId);
   });
   
   localWs.on('error', (err) => {
     console.error(`   Local VNC error for ${viewerId}:`, err.message);
+    viewers.delete(viewerId);
   });
 }
 
 // Handle viewer disconnect
 function handleViewerDisconnect(viewerId) {
-  console.log(`👁️  Viewer disconnected: ${viewerId}`);
-  const localWs = viewers.get(viewerId);
-  if (localWs) {
-    localWs.close();
-    viewers.delete(viewerId);
+  if (!QUIET) console.log(`👁️  Viewer disconnected: ${viewerId}`);
+  const viewer = viewers.get(viewerId);
+  if (viewer && viewer.localWs) {
+    try {
+      viewer.localWs.close(1000, 'Viewer disconnected');
+    } catch (e) {}
   }
+  viewers.delete(viewerId);
 }
 
 // Handle data from viewer
 function handleViewerData(relayWs, viewerId, base64Data) {
-  const localWs = viewers.get(viewerId);
-  if (localWs && localWs.readyState === WebSocket.OPEN) {
-    localWs.send(Buffer.from(base64Data, 'base64'));
+  const viewer = viewers.get(viewerId);
+  if (!viewer) return;
+  
+  const data = Buffer.from(base64Data, 'base64');
+  
+  if (viewer.ready && viewer.localWs && viewer.localWs.readyState === WebSocket.OPEN) {
+    try {
+      viewer.localWs.send(data);
+    } catch (e) {
+      console.error(`   Error sending to local VNC:`, e.message);
+    }
+  } else {
+    // Buffer until ready
+    viewer.buffer.push(data);
   }
 }
 
@@ -159,6 +210,10 @@ setInterval(() => {}, 1000);
 // Handle exit
 process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down...');
-  viewers.forEach((ws) => ws.close());
+  viewers.forEach((viewer) => {
+    if (viewer.localWs) {
+      try { viewer.localWs.close(); } catch (e) {}
+    }
+  });
   process.exit(0);
 });
