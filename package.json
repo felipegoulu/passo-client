@@ -1,0 +1,14 @@
+{
+  "name": "passo-client",
+  "version": "1.0.0",
+  "main": "passo-client.js",
+  "bin": {
+    "passo-client": "./passo-client.js"
+  },
+  "scripts": {
+    "start": "node passo-client.js"
+  },
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}
