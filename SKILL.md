@@ -15,6 +15,12 @@ The script will:
 2. Install dependencies (Chromium, VNC, etc.)
 3. Create the `passo` command
 
+## Your Browser URL
+
+{{ACCESS_URL}}
+
+Protected by: {{EMAIL}}
+
 ## Commands
 
 ```bash
@@ -25,9 +31,7 @@ passo status  # Check if running
 
 ## How to use
 
-Once installed, the user gets a unique URL like `https://api.getpasso.app/b/username`
-
-1. Send this URL when you need human help
+1. Send the URL above when you need human help
 2. User opens it on their phone/laptop
 3. User signs in with Google (only their email can access)
 4. User does the action (login, 2FA, captcha, etc.)
