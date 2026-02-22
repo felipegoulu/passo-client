@@ -1,25 +1,44 @@
 # Passo - Remote Browser Access
 
-When you need the user to login, complete 2FA, solve a captcha, or do any manual browser action.
+Give your user remote access to a browser on your server. Perfect for logins, 2FA, captchas, or any manual browser action.
 
-## Access URL
+## Installation
 
-{{ACCESS_URL}}
+Run this on the server where you want the browser:
 
-Protected by Google OAuth ({{EMAIL}})
+```bash
+curl -fsSL https://raw.githubusercontent.com/felipegoulu/passo-client/main/install.sh | bash
+```
 
-## How to use
-
-1. Send the URL to the user
-2. They sign in with Google  
-3. They do the action in the browser
-4. They say "done"
-5. You continue
+The script will:
+1. Prompt the user to sign up at getpasso.app (if no account)
+2. Install dependencies (Chromium, VNC, etc.)
+3. Create the `passo` command
 
 ## Commands
 
 ```bash
 passo start   # Start the browser tunnel
-passo stop    # Stop everything
+passo stop    # Stop everything  
 passo status  # Check if running
 ```
+
+## How to use
+
+Once installed, the user gets a unique URL like `https://api.getpasso.app/b/username`
+
+1. Send this URL when you need human help
+2. User opens it on their phone/laptop
+3. User signs in with Google (only their email can access)
+4. User does the action (login, 2FA, captcha, etc.)
+5. User says "done"
+6. You continue
+
+## Pricing
+
+$5/month after 30-day free trial. Managed via getpasso.app/dashboard.
+
+## Links
+
+- Website: https://getpasso.app
+- Docs: https://getpasso.app/docs
