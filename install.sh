@@ -6,14 +6,7 @@ set -e
 
 PASSO_DIR=~/.passo
 RELAY_URL="https://api.getpasso.app"
-
-# Get install code from argument
-CODE="$1"
-if [ -z "$CODE" ]; then
-    echo "❌ Usage: curl -fsSL .../install.sh | bash -s YOUR_CODE"
-    echo "   Get your code from: https://getpasso.app/dashboard"
-    exit 1
-fi
+WEB_URL="https://getpasso.app"
 
 echo ""
 echo "  ██████╗  █████╗ ███████╗███████╗ ██████╗ "
@@ -26,21 +19,72 @@ echo ""
 echo "  Access your browser from anywhere"
 echo ""
 
-# Fetch token from API
-echo "🔐 Validating code..."
-RESPONSE=$(curl -sL "$RELAY_URL/api/install-code/$CODE")
+# Get install code from argument
+CODE="$1"
 
-# Check for error
-if echo "$RESPONSE" | grep -q '"error"'; then
-    ERROR=$(echo "$RESPONSE" | grep -o '"error":"[^"]*"' | cut -d'"' -f4)
-    echo "❌ $ERROR"
-    exit 1
+if [ -z "$CODE" ]; then
+    # No code provided - start interactive signup flow
+    echo "🔐 Creating session..."
+    SESSION_RESPONSE=$(curl -sL -X POST "$RELAY_URL/api/cli-session")
+    SESSION_ID=$(echo "$SESSION_RESPONSE" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+    
+    if [ -z "$SESSION_ID" ]; then
+        echo "❌ Failed to create session"
+        exit 1
+    fi
+    
+    SIGNUP_URL="$WEB_URL/auth?cli_session=$SESSION_ID"
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "  Open this URL in your browser:"
+    echo ""
+    echo "  $SIGNUP_URL"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "⏳ Waiting for you to sign up and pay..."
+    echo "   (This will continue automatically)"
+    echo ""
+    
+    # Poll for session completion
+    while true; do
+        POLL_RESPONSE=$(curl -sL "$RELAY_URL/api/cli-session/$SESSION_ID")
+        STATUS=$(echo "$POLL_RESPONSE" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+        
+        if [ "$STATUS" = "complete" ]; then
+            TOKEN=$(echo "$POLL_RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+            EMAIL=$(echo "$POLL_RESPONSE" | grep -o '"email":"[^"]*"' | cut -d'"' -f4)
+            SLUG=$(echo "$POLL_RESPONSE" | grep -o '"slug":"[^"]*"' | cut -d'"' -f4)
+            echo ""
+            echo "✅ Payment confirmed!"
+            break
+        elif echo "$POLL_RESPONSE" | grep -q '"error"'; then
+            ERROR=$(echo "$POLL_RESPONSE" | grep -o '"error":"[^"]*"' | cut -d'"' -f4)
+            echo "❌ $ERROR"
+            exit 1
+        fi
+        
+        sleep 2
+    done
+else
+    # Code provided - fetch credentials directly
+    echo "🔐 Validating code..."
+    RESPONSE=$(curl -sL "$RELAY_URL/api/install-code/$CODE")
+
+    # Check for error
+    if echo "$RESPONSE" | grep -q '"error"'; then
+        ERROR=$(echo "$RESPONSE" | grep -o '"error":"[^"]*"' | cut -d'"' -f4)
+        echo "❌ $ERROR"
+        exit 1
+    fi
+
+    # Parse response
+    TOKEN=$(echo "$RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+    EMAIL=$(echo "$RESPONSE" | grep -o '"email":"[^"]*"' | cut -d'"' -f4)
+    SLUG=$(echo "$RESPONSE" | grep -o '"slug":"[^"]*"' | cut -d'"' -f4)
 fi
-
-# Parse response
-TOKEN=$(echo "$RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-EMAIL=$(echo "$RESPONSE" | grep -o '"email":"[^"]*"' | cut -d'"' -f4)
-SLUG=$(echo "$RESPONSE" | grep -o '"slug":"[^"]*"' | cut -d'"' -f4)
 
 if [ -z "$TOKEN" ] || [ -z "$EMAIL" ] || [ -z "$SLUG" ]; then
     echo "❌ Invalid response from server"
