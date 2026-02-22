@@ -4,11 +4,16 @@
 
 set -e
 
-TOKEN="{{TOKEN}}"
-EMAIL="{{EMAIL}}"
-SLUG="{{SLUG}}"
 PASSO_DIR=~/.passo
 RELAY_URL="https://api.getpasso.app"
+
+# Get install code from argument
+CODE="$1"
+if [ -z "$CODE" ]; then
+    echo "❌ Usage: curl -fsSL .../install.sh | bash -s YOUR_CODE"
+    echo "   Get your code from: https://getpasso.app/dashboard"
+    exit 1
+fi
 
 echo ""
 echo "  ██████╗  █████╗ ███████╗███████╗ ██████╗ "
@@ -20,6 +25,27 @@ echo "  ╚═╝     ╚═╝  ╚═╝╚══════╝╚═══�
 echo ""
 echo "  Access your browser from anywhere"
 echo ""
+
+# Fetch token from API
+echo "🔐 Validating code..."
+RESPONSE=$(curl -sL "$RELAY_URL/api/install-code/$CODE")
+
+# Check for error
+if echo "$RESPONSE" | grep -q '"error"'; then
+    ERROR=$(echo "$RESPONSE" | grep -o '"error":"[^"]*"' | cut -d'"' -f4)
+    echo "❌ $ERROR"
+    exit 1
+fi
+
+# Parse response
+TOKEN=$(echo "$RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+EMAIL=$(echo "$RESPONSE" | grep -o '"email":"[^"]*"' | cut -d'"' -f4)
+SLUG=$(echo "$RESPONSE" | grep -o '"slug":"[^"]*"' | cut -d'"' -f4)
+
+if [ -z "$TOKEN" ] || [ -z "$EMAIL" ] || [ -z "$SLUG" ]; then
+    echo "❌ Invalid response from server"
+    exit 1
+fi
 
 echo "✅ Authenticated as: $EMAIL"
 echo "📍 Your handle: $SLUG"
